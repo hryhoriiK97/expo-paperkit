@@ -52,19 +52,35 @@ extension ExpoPaperkitView {
     state.viewController?.undoManager?.redo()
   }
 
-  func exportAsImage(format: String, quality: Double) async throws -> String {
+  func exportAsImage(format: String, quality: Double, includeBackground: Bool) async throws -> String {
     guard let markup = state.viewController?.markup ?? state.markup else {
       throw PaperkitError.noMarkupData
     }
 
     let renderBounds = markup.bounds
+
+    guard renderBounds.width > 0, renderBounds.height > 0 else {
+      throw PaperkitError.exportFailed("Markup bounds are empty")
+    }
+
+    let background = includeBackground ? normalizedBackgroundImage() : nil
+
 #if !os(macOS)
-    let scale = UIScreen.main.scale
+    let screenScale = UIScreen.main.scale
 #else
-    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+    let screenScale = NSScreen.main?.backingScaleFactor ?? 2.0
 #endif
-    let pixelWidth = Int(renderBounds.width * scale)
-    let pixelHeight = Int(renderBounds.height * scale)
+
+    let outputSize = background.map { backgroundPixelSize($0) }
+      ?? CGSize(width: renderBounds.width * screenScale, height: renderBounds.height * screenScale)
+
+    let pixelWidth = Int(outputSize.width.rounded())
+    let pixelHeight = Int(outputSize.height.rounded())
+
+    guard pixelWidth > 0, pixelHeight > 0 else {
+      throw PaperkitError.exportFailed("Computed an empty output size")
+    }
+
     let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     guard let ctx = CGContext(
@@ -79,8 +95,26 @@ extension ExpoPaperkitView {
       throw PaperkitError.exportFailed("Failed to create bitmap context")
     }
 
-    ctx.scaleBy(x: scale, y: scale)
-    ctx.translateBy(x: -renderBounds.origin.x, y: -renderBounds.origin.y)
+    if let background = background, let backgroundImage = backgroundCGImage(from: background) {
+      ctx.draw(backgroundImage, in: CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
+    }
+
+    let markupRect: CGRect
+
+    if let background = background {
+      markupRect = contentRect(
+        forImageSize: backgroundPixelSize(background),
+        in: renderBounds,
+        contentMode: backgroundImageContentMode
+      )
+    } else {
+      markupRect = renderBounds
+    }
+
+    ctx.translateBy(x: 0, y: CGFloat(pixelHeight))
+    ctx.scaleBy(x: 1, y: -1)
+    ctx.scaleBy(x: CGFloat(pixelWidth) / markupRect.width, y: CGFloat(pixelHeight) / markupRect.height)
+    ctx.translateBy(x: -markupRect.origin.x, y: -markupRect.origin.y)
 
 #if !os(macOS)
     let options = RenderingOptions(traitCollection: UITraitCollection.current)
@@ -93,15 +127,14 @@ extension ExpoPaperkitView {
       throw PaperkitError.exportFailed("Failed to create image from context")
     }
 
-#if !os(macOS)
-    let image = UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     let ext = format == "jpg" ? "jpg" : "png"
+
+#if !os(macOS)
+    let image = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
     let imageData: Data? = format == "jpg"
       ? image.jpegData(compressionQuality: quality)
       : image.pngData()
 #else
-    let nsImage = NSImage(cgImage: cgImage, size: renderBounds.size)
-    let ext = format == "jpg" ? "jpg" : "png"
     let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
     let imageData: Data? = format == "jpg"
       ? bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: quality])
@@ -118,7 +151,57 @@ extension ExpoPaperkitView {
     try data.write(to: fileURL)
     return fileURL.absoluteString
   }
+
+  private func contentRect(forImageSize imageSize: CGSize, in bounds: CGRect, contentMode: String) -> CGRect {
+    guard contentMode == "contain", imageSize.width > 0, imageSize.height > 0 else { return bounds }
+
+    let fitScale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+    let fittedSize = CGSize(width: imageSize.width * fitScale, height: imageSize.height * fitScale)
+
+    return CGRect(
+      x: bounds.origin.x + (bounds.width - fittedSize.width) / 2,
+      y: bounds.origin.y + (bounds.height - fittedSize.height) / 2,
+      width: fittedSize.width,
+      height: fittedSize.height
+    )
+  }
+
+#if !os(macOS)
+  private func normalizedBackgroundImage() -> UIImage? {
+    guard let image = (state.viewController?.contentView as? UIImageView)?.image else { return nil }
+    guard image.imageOrientation != .up else { return image }
+
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = image.scale
+
+    return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+      image.draw(in: CGRect(origin: .zero, size: image.size))
+    }
+  }
+
+  private func backgroundPixelSize(_ image: UIImage) -> CGSize {
+    CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+  }
+
+  private func backgroundCGImage(from image: UIImage) -> CGImage? {
+    image.cgImage
+  }
+#else
+  private func normalizedBackgroundImage() -> NSImage? {
+    (state.viewController?.contentView as? NSImageView)?.image
+  }
+
+  private func backgroundPixelSize(_ image: NSImage) -> CGSize {
+    guard let rep = image.representations.first else { return image.size }
+    return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+  }
+
+  private func backgroundCGImage(from image: NSImage) -> CGImage? {
+    image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+  }
+#endif
 }
+
 
 #else
 
@@ -131,7 +214,7 @@ extension ExpoPaperkitView {
   func performUndo() {}
   func performRedo() {}
   func presentMarkupTools() {}
-  func exportAsImage(format: String, quality: Double) async throws -> String {
+  func exportAsImage(format: String, quality: Double, includeBackground: Bool) async throws -> String {
     throw PaperkitError.unsupportedPlatform
   }
 }

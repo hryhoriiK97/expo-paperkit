@@ -66,7 +66,11 @@ export interface PaperMarkupRef {
    * @returns File URI of the exported image.
    * @platform ios, macos
    */
-  exportAsImage(format: 'png' | 'jpg', quality?: number): Promise<string>;
+  exportAsImage(
+    format: 'png' | 'jpg',
+    quality?: number,
+    includeBackground?: boolean
+  ): Promise<string>;
   /**
    * Remove all markup content from the canvas.
    * @platform ios, macos

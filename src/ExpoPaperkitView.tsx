@@ -46,8 +46,8 @@ export const PaperMarkupView = forwardRef<PaperMarkupRef, PaperMarkupViewProps>(
 
     useImperativeHandle(ref, () => ({
       save: () => nativeRef.current?.save() ?? Promise.reject(new Error('View not mounted')),
-      exportAsImage: (format: 'png' | 'jpg' = 'png', quality = 0.9) =>
-        nativeRef.current?.exportAsImage(format, quality) ??
+      exportAsImage: (format: 'png' | 'jpg' = 'png', quality = 0.9, includeBackground = true) =>
+        nativeRef.current?.exportAsImage(format, quality, includeBackground) ??
         Promise.reject(new Error('View not mounted')),
       clear: () => nativeRef.current?.clear(),
       undo: () => nativeRef.current?.undo(),
@@ -84,12 +84,7 @@ export const PaperMarkupView = forwardRef<PaperMarkupRef, PaperMarkupViewProps>(
         ...DEFAULT_FEATURE_SET,
         ...featureSet,
       }),
-      [
-        featureSet?.shapes,
-        featureSet?.textBoxes,
-        featureSet?.arrows,
-        featureSet?.hdr,
-      ]
+      [featureSet?.shapes, featureSet?.textBoxes, featureSet?.arrows, featureSet?.hdr]
     );
 
     return (

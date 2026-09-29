@@ -99,9 +99,9 @@ public class ExpoPaperkitModule: Module {
         throw PaperkitError.unsupportedPlatform
       }
 
-      AsyncFunction("exportAsImage") { (view: ExpoPaperkitView, format: String, quality: Double) -> String in
+      AsyncFunction("exportAsImage") { (view: ExpoPaperkitView, format: String, quality: Double, includeBackground: Bool?) -> String in
         if #available(iOS 26.0, macOS 26.0, *) {
-          return try await view.exportAsImage(format: format, quality: quality)
+          return try await view.exportAsImage(format: format, quality: quality, includeBackground: includeBackground ?? true)
         }
         throw PaperkitError.unsupportedPlatform
       }
